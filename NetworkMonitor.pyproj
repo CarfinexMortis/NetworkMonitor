@@ -11,6 +11,9 @@
     <OutputPath>.</OutputPath>
     <Name>NetworkMonitor</Name>
     <RootNamespace>NetworkMonitor</RootNamespace>
+    <TestFramework>none</TestFramework>
+    <UnitTestPattern>test*.py</UnitTestPattern>
+    <UnitTestRootDirectory>.</UnitTestRootDirectory>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -21,6 +24,7 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="alerts\firewall_manager.py" />
     <Compile Include="alerts\notifier.py" />
     <Compile Include="alerts\__init__.py" />
     <Compile Include="database\db_manager.py" />
@@ -31,6 +35,7 @@
     <Compile Include="monitor\analyzer.py" />
     <Compile Include="monitor\sniffer.py" />
     <Compile Include="monitor\__init__.py" />
+    <Compile Include="tests\threat_simulator.py" />
     <Compile Include="tests\__init__.py" />
     <Compile Include="ui\main_window.py" />
     <Compile Include="ui\__init__.py" />

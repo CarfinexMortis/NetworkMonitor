@@ -8,9 +8,12 @@ from PyQt5.QtCore import Qt, QSize
 from monitor.sniffer import NetworkSniffer
 from database.db_manager import (
     init_db, save_log, get_all_logs,
-    add_to_blacklist, remove_from_blacklist, get_blacklist, is_ip_blacklisted
+    add_to_blacklist, remove_from_blacklist, get_blacklist, is_ip_blacklisted,
+    get_setting, set_setting
 )
+from tests.threat_simulator import ThreatSimulator
 import sys
+import threading
 
 
 class MainWindow(QMainWindow):
@@ -19,6 +22,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Network Monitor")
         self.setGeometry(100, 100, 1200, 900)
         self.sniffer = None
+        self.settings = {}
+        
+        # Initialize database and load settings
+        self.init_db()
+        self.load_settings()
         
         # Set application style
         self.setStyleSheet("""
@@ -62,15 +70,25 @@ class MainWindow(QMainWindow):
             }
         """)
         
-        self.init_db()
         self.initUI()
-        
+        self.setup_threat_simulation()
+
     def init_db(self):
         """Initialize the database"""
         try:
             init_db()
         except Exception as e:
             QMessageBox.critical(self, "Database Error", f"Failed to initialize database: {str(e)}")
+
+    def load_settings(self):
+        """Load application settings from database"""
+        self.settings = {
+            'notifications_enabled': get_setting('notifications_enabled', '1') == '1',
+            'log_level': get_setting('log_level', 'Medium'),
+            'auto_blacklist_threshold': int(get_setting('auto_blacklist_threshold', '5')),
+            'log_retention_days': int(get_setting('log_retention_days', '30')),
+            'start_minimized': get_setting('start_minimized', '0') == '1'
+        }
 
     def initUI(self):
         """Initialize the UI layout"""
@@ -132,10 +150,10 @@ class MainWindow(QMainWindow):
         sidebar.addWidget(title)
 
         buttons = [
-            ("Monitoring", "icons/dashboard.png", self.show_dashboard),
-            ("Logs", "icons/logs.png", self.show_logs),
-            ("Blacklist", "icons/blacklist.png", self.show_blacklist),
-            ("Settings", "icons/settings.png", self.show_settings)
+            ("Monitoring", "icons/dashboard.png", lambda: self.tab_widget.setCurrentIndex(0)),
+            ("Logs", "icons/logs.png", lambda: self.tab_widget.setCurrentIndex(1)),
+            ("Blacklist", "icons/blacklist.png", lambda: self.tab_widget.setCurrentIndex(2)),
+            ("Settings", "icons/settings.png", lambda: self.tab_widget.setCurrentIndex(3))
         ]
 
         for text, icon, handler in buttons:
@@ -208,7 +226,7 @@ class MainWindow(QMainWindow):
         
         self.threshold_spinbox = QSpinBox()
         self.threshold_spinbox.setRange(1, 20)
-        self.threshold_spinbox.setValue(5)
+        self.threshold_spinbox.setValue(self.settings['auto_blacklist_threshold'])
         self.threshold_spinbox.setStyleSheet("""
             QSpinBox {
                 padding: 5px;
@@ -216,11 +234,32 @@ class MainWindow(QMainWindow):
             }
         """)
         
+        # Simulate Threat button
+        self.btn_simulate_threat = QPushButton("Simulate Threat")
+        self.btn_simulate_threat.setIcon(QIcon("icons/warning.png"))
+        self.btn_simulate_threat.setStyleSheet("""
+            QPushButton {
+                padding: 10px 20px;
+                font-size: 14px;
+                background-color: #f59e0b;
+                color: white;
+                border-radius: 6px;
+                min-width: 150px;
+            }
+            QPushButton:hover {
+                background-color: #d97706;
+            }
+            QPushButton:pressed {
+                background-color: #b45309;
+            }
+        """)
+        
         control_layout.addWidget(self.btn_start_monitoring)
         control_layout.addWidget(threshold_label)
         control_layout.addWidget(self.threshold_spinbox)
         control_layout.addStretch()
-
+        control_layout.addWidget(self.btn_simulate_threat)
+        
         # IP table
         self.ip_table = QTableWidget()
         self.ip_table.setColumnCount(6)
@@ -245,6 +284,43 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.ip_table)
         tab.setLayout(layout)
         self.tab_widget.addTab(tab, QIcon("icons/dashboard.png"), "Monitoring")
+
+    def setup_threat_simulation(self):
+        """Configure threat simulation"""
+        self.threat_simulator = ThreatSimulator(target_ip="127.0.0.1")
+        
+        # Create combo box for threat type selection
+        self.threat_type_combo = QComboBox()
+        for threat_type in self.threat_simulator.threat_types.keys():
+            self.threat_type_combo.addItem(threat_type)
+        
+        # Add combo box to the dashboard tab layout
+        dashboard_tab = self.tab_widget.widget(0)
+        layout = dashboard_tab.layout()
+        control_layout = layout.itemAt(0).layout()
+        control_layout.insertWidget(4, QLabel("Threat Type:"))
+        control_layout.insertWidget(5, self.threat_type_combo)
+        
+        # Connect the simulate threat button
+        self.btn_simulate_threat.clicked.connect(self.run_threat_simulation)
+
+    def run_threat_simulation(self):
+        """Run selected threat simulation"""
+        threat_type = self.threat_type_combo.currentText()
+        QMessageBox.information(
+            self,
+            "Threat Simulation Started",
+            f"Simulating {threat_type} attack pattern\n"
+            "Check your monitor for detection alerts."
+        )
+        
+        # Run in separate thread to avoid UI freezing
+        thread = threading.Thread(
+            target=self.threat_simulator.simulate_threat,
+            args=(threat_type,),
+            daemon=True
+        )
+        thread.start()
 
     def create_logs_tab(self):
         """Create the logs tab"""
@@ -336,7 +412,7 @@ class MainWindow(QMainWindow):
                 background-color: #b91c1c;
             }
         """)
-        add_btn.clicked.connect(self.add_to_blacklist_ui)
+        add_btn.clicked.connect(lambda: self.add_to_blacklist_ui())
         
         add_layout.addLayout(ip_layout)
         add_layout.addLayout(reason_layout)
@@ -377,8 +453,7 @@ class MainWindow(QMainWindow):
         notif_group = QGroupBox("Notification Settings")
         notif_layout = QVBoxLayout()
         self.notif_checkbox = QCheckBox("Enable desktop notifications")
-        self.notif_checkbox.setChecked(True)
-        self.notif_checkbox.setStyleSheet("padding: 5px;")
+        self.notif_checkbox.setChecked(self.settings['notifications_enabled'])
         notif_layout.addWidget(self.notif_checkbox)
         notif_group.setLayout(notif_layout)
 
@@ -390,12 +465,30 @@ class MainWindow(QMainWindow):
         log_level_layout.addWidget(QLabel("Logging level:"))
         self.log_level_combo = QComboBox()
         self.log_level_combo.addItems(["Low", "Medium", "High"])
+        self.log_level_combo.setCurrentText(self.settings['log_level'])
         self.log_level_combo.setStyleSheet("padding: 5px; min-width: 150px;")
         log_level_layout.addWidget(self.log_level_combo)
         log_level_layout.addStretch()
         
+        log_retention_layout = QHBoxLayout()
+        log_retention_layout.addWidget(QLabel("Log retention (days):"))
+        self.log_retention_spinbox = QSpinBox()
+        self.log_retention_spinbox.setRange(1, 365)
+        self.log_retention_spinbox.setValue(self.settings['log_retention_days'])
+        log_retention_layout.addWidget(self.log_retention_spinbox)
+        log_retention_layout.addStretch()
+        
         log_layout.addLayout(log_level_layout)
+        log_layout.addLayout(log_retention_layout)
         log_group.setLayout(log_layout)
+
+        # Behavior settings
+        behavior_group = QGroupBox("Behavior Settings")
+        behavior_layout = QVBoxLayout()
+        self.start_minimized_checkbox = QCheckBox("Start minimized to system tray")
+        self.start_minimized_checkbox.setChecked(self.settings['start_minimized'])
+        behavior_layout.addWidget(self.start_minimized_checkbox)
+        behavior_group.setLayout(behavior_layout)
 
         # Save button
         save_btn = QPushButton("Save Settings")
@@ -419,6 +512,7 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(notif_group)
         layout.addWidget(log_group)
+        layout.addWidget(behavior_group)
         layout.addStretch()
         
         btn_layout = QHBoxLayout()
@@ -549,9 +643,11 @@ class MainWindow(QMainWindow):
             remove_btn.clicked.connect(lambda _, ip=item[0]: self.remove_from_blacklist_ui(ip))
             self.blacklist_table.setCellWidget(row_num, 2, remove_btn)
 
-    def add_to_blacklist_ui(self):
+    def add_to_blacklist_ui(self, ip=None):
         """Add an IP to blacklist from UI"""
-        ip = self.ip_input.text().strip()
+        # If IP is not provided, get it from the input field
+        if ip is None:
+            ip = self.ip_input.text().strip()
         reason = self.reason_input.text().strip() or None
         
         if not ip:
@@ -563,19 +659,11 @@ class MainWindow(QMainWindow):
             self.ip_input.clear()
             self.reason_input.clear()
             
-            # Show success message with custom styling
+            # Show success message
             msg = QMessageBox()
             msg.setIcon(QMessageBox.Information)
             msg.setWindowTitle("Success")
             msg.setText(f"IP {ip} added to blacklist")
-            msg.setStyleSheet("""
-                QMessageBox {
-                    background-color: white;
-                }
-                QLabel {
-                    font-size: 14px;
-                }
-            """)
             msg.exec_()
         else:
             QMessageBox.warning(self, "Error", f"Failed to add IP {ip} to blacklist")
@@ -585,19 +673,11 @@ class MainWindow(QMainWindow):
         if remove_from_blacklist(ip):
             self.refresh_blacklist()
             
-            # Show success message with custom styling
+            # Show success message
             msg = QMessageBox()
             msg.setIcon(QMessageBox.Information)
             msg.setWindowTitle("Success")
             msg.setText(f"IP {ip} removed from blacklist")
-            msg.setStyleSheet("""
-                QMessageBox {
-                    background-color: white;
-                }
-                QLabel {
-                    font-size: 14px;
-                }
-            """)
             msg.exec_()
         else:
             QMessageBox.warning(self, "Error", f"Failed to remove IP {ip} from blacklist")
@@ -609,15 +689,6 @@ class MainWindow(QMainWindow):
             msg.setIcon(QMessageBox.Warning)
             msg.setWindowTitle("Threat Detected")
             msg.setText(f"{message}\nIP: {ip}")
-            msg.setStyleSheet("""
-                QMessageBox {
-                    background-color: white;
-                }
-                QLabel {
-                    font-size: 14px;
-                    color: #b91c1c;
-                }
-            """)
             msg.exec_()
 
     def show_ip_context_menu(self, position):
@@ -654,40 +725,23 @@ class MainWindow(QMainWindow):
 
     def save_settings(self):
         """Save application settings"""
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Information)
-        msg.setWindowTitle("Settings Saved")
-        msg.setText("Your settings have been saved successfully")
-        msg.setStyleSheet("""
-            QMessageBox {
-                background-color: white;
-            }
-            QLabel {
-                font-size: 14px;
-            }
-        """)
-        msg.exec_()
-
-    # Tab navigation methods
-    def show_dashboard(self):
-        self.tab_widget.setCurrentIndex(0)
-
-    def show_logs(self):
-        self.tab_widget.setCurrentIndex(1)
-        self.refresh_logs()
-
-    def show_blacklist(self):
-        self.tab_widget.setCurrentIndex(2)
-        self.refresh_blacklist()
-
-    def show_settings(self):
-        self.tab_widget.setCurrentIndex(3)
+        # Update settings from UI controls
+        self.settings['notifications_enabled'] = self.notif_checkbox.isChecked()
+        self.settings['log_level'] = self.log_level_combo.currentText()
+        self.settings['auto_blacklist_threshold'] = self.threshold_spinbox.value()
+        self.settings['log_retention_days'] = self.log_retention_spinbox.value()
+        self.settings['start_minimized'] = self.start_minimized_checkbox.isChecked()
+        
+        # Save to database
+        for name, value in self.settings.items():
+            set_setting(name, value)
+        
+        # Show confirmation
+        QMessageBox.information(self, "Settings Saved", "Settings have been saved successfully.")
 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    
-    # Set application style
     app.setStyle("Fusion")
     
     window = MainWindow()
