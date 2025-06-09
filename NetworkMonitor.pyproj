@@ -25,18 +25,13 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="alerts\firewall_manager.py" />
-    <Compile Include="alerts\notifier.py" />
     <Compile Include="alerts\__init__.py" />
     <Compile Include="database\db_manager.py" />
-    <Compile Include="database\models.py" />
     <Compile Include="database\__init__.py" />
     <Compile Include="logs\log_manager.py" />
     <Compile Include="main.py" />
-    <Compile Include="monitor\analyzer.py" />
     <Compile Include="monitor\sniffer.py" />
     <Compile Include="monitor\__init__.py" />
-    <Compile Include="tests\threat_simulator.py" />
-    <Compile Include="tests\__init__.py" />
     <Compile Include="ui\main_window.py" />
     <Compile Include="ui\__init__.py" />
   </ItemGroup>
@@ -47,7 +42,6 @@
     <Folder Include="monitor\" />
     <Folder Include="icons\" />
     <Folder Include="ui\" />
-    <Folder Include="tests\" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="README.md" />

@@ -46,7 +46,7 @@ def init_db():
             default_settings = [
                     ('notifications_enabled', '1'),
                     ('log_level', 'Medium'),
-                    ('auto_blacklist_threshold', '5'),
+                    ('auto_blacklist_threshold', '10'),
                     ('log_retention_days', '30'),
                     ('dark_mode', '0'),
                     ('start_minimized', '0')
@@ -105,6 +105,18 @@ def delete_old_logs(days=30):
     except sqlite3.Error as e:
         print(f"Error deleting old logs: {e}")
 
+def clear_all_logs():
+    """Clear all logs from the database"""
+    try:
+        with sqlite3.connect(DB_NAME) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM logs")  
+            conn.commit()
+        print("All logs have been cleared from the database.")
+        return True
+    except sqlite3.Error as e:
+        print(f"Error clearing logs: {e}")
+        return False
 
 # ===== Blacklist functions =====
 def add_to_blacklist(ip, reason=None, days_active=None):
